@@ -4,19 +4,19 @@ An agent-based system for gathering and analyzing market/financial data — news
 
 ## Status
 
-Early scaffolding stage. The project structure is laid out, and the first working piece — an RSS news scraper — is in progress.
+Early scaffolding stage. `agent` is now a proper Python package, and the RSS scraper has been reworked into a small pipeline: polite fetching (conditional requests + retry handling), persistent per-feed state, and deduped article storage on disk.
 
 ## Current Progress
 
 ### Working
-- **RSS feed fetching** ([scrapping_RSS.py](src/agent/scrapping/scrapping_RSS.py)): given a feed URL, pulls entries via `feedparser` and normalizes each into a dict with `headline`, `url`, `summary`, `published_at`, and `source`, then writes them to `scrapped_news.json`.
-- **Feed list** ([feeds.json](src/agent/scrapping/feeds.json)): registry of named RSS sources to pull from (currently just Nasdaq Markets).
-- **Runner script** ([RSS_links_scraper.py](src/agent/scrapping/RSS_links_scraper.py)): loops over `feeds.json` and fetches each feed.
+- **RSS ingestion runner** ([scraping_param.py](src/agent/scrapping/scraping_param.py)): loops over `feeds.json`, fetches each feed via `feedparser` with conditional requests (`etag`/`modified`), skips feeds that 304 (not modified), retries-later on `429/500/502/503/504`, and treats `401/403/404/410` as blocked/gone. Normalizes entries into `id`, `headline`, `url`, `summary`, `published_at`, `source`, then hands them to the pipeline for dedup + storage. Run with `python -m agent.scrapping.scraping_param` from `src/`.
+- **Storage layer** ([storing_results.py](src/agent/pipeline/storing_results.py)): owns all on-disk state — per-feed HTTP cache (`data/state/feed_state.json`) and deduped articles keyed by id (`data/raw/articles.json`). Writes are atomic (temp file + rename), and a corrupt JSON file is backed up and reset rather than crashing the run.
+- **Feed list** ([feeds.json](src/agent/scrapping/feeds.json)): registry of named RSS sources — currently Reuters Business, FT Home, and CNBC Finance.
+- **Standalone fetch helper** ([scraping_RSS.py](src/agent/scrapping/scraping_RSS.py)): a simpler `fetch_feed()` (no state/dedup) that normalizes a single feed's entries. Not currently wired into the runner — looks like an earlier iteration kept alongside the pipeline version.
 
 ### Known issues
-- The scraper run in the last commit failed (per commit message) — needs debugging.
-- Only one feed source is registered so far; more need to be added to `feeds.json`.
-- No persistence layer yet — output is a flat local JSON file, no dedup/versioning across runs.
+- `scraping_RSS.py` and `scraping_param.py` duplicate most of the same fetch logic; worth consolidating once the pipeline approach is settled.
+- Only three feed sources are registered so far; more need to be added to `feeds.json`.
 
 ### Not started
 The following modules exist as empty scaffolding, reserved for future work:
@@ -27,7 +27,6 @@ The following modules exist as empty scaffolding, reserved for future work:
 | `src/agent/econometrics/` | Quantitative/statistical modeling |
 | `src/agent/microstructure/` | Market microstructure analysis |
 | `src/agent/graph/` | Graph-based relationship modeling |
-| `src/agent/pipeline/` | Orchestration tying scraping → processing → storage together |
 | `src/agent/api/` | External-facing API |
 | `src/dags/` | Scheduled/orchestrated workflows (e.g. Airflow) |
 | `src/notebooks/` | Exploratory analysis notebooks |
@@ -36,22 +35,30 @@ The following modules exist as empty scaffolding, reserved for future work:
 ## Project Structure
 
 ```
+data/
+├── raw/
+│   └── articles.json      # deduped article store, keyed by id
+└── state/
+    └── feed_state.json    # per-feed etag/modified cache
 src/
 ├── agent/
-│   ├── api/              # (empty) external API
-│   ├── econometrics/      # (empty) quantitative models
-│   ├── graph/             # (empty) graph-based analysis
-│   ├── microstructure/     # (empty) market microstructure analysis
-│   ├── nlp/               # (empty) NLP processing
-│   ├── pipeline/          # (empty) orchestration
-│   └── scrapping/         # RSS news scraper (active)
+│   ├── __init__.py
+│   ├── api/                # (empty) external API
+│   ├── econometrics/       # (empty) quantitative models
+│   ├── graph/               # (empty) graph-based analysis
+│   ├── microstructure/      # (empty) market microstructure analysis
+│   ├── nlp/                 # (empty) NLP processing
+│   ├── pipeline/            # storage layer (active)
+│   │   ├── __init__.py
+│   │   └── storing_results.py
+│   └── scrapping/           # RSS news scraper (active)
+│       ├── __init__.py
 │       ├── feeds.json
-│       ├── RSS_links_scraper.py
-│       ├── scrapping_RSS.py
-│       └── testing.ipynb
-├── dags/                  # (empty) scheduled workflows
-├── notebooks/             # (empty) exploratory notebooks
-└── scripts/               # (empty) utility scripts
+│       ├── scraping_param.py   # runner: fetch + state + dedup + storage
+│       └── scraping_RSS.py     # standalone fetch helper, not yet wired in
+├── dags/                    # (empty) scheduled workflows
+├── notebooks/                # (empty) exploratory notebooks
+└── scripts/                  # (empty) utility scripts
 ```
 
 ## Requirements
@@ -60,6 +67,6 @@ src/
 - [`feedparser`](https://pypi.org/project/feedparser/)
 
 ## Next Steps
-- Fix the failing scraper run.
+- Decide between `scraping_RSS.py` and `scraping_param.py` and remove the duplicate.
 - Add more RSS sources to `feeds.json`.
-- Start wiring scraped output into a storage/pipeline step instead of a flat JSON file.
+- Start building out the NLP/econometrics/graph modules on top of `data/raw/articles.json`.

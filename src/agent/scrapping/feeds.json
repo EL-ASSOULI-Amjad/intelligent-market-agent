@@ -1,3 +1,5 @@
-{
-  "nasdaq_markets": "https://www.nasdaq.com/feed/rssoutbound?category=Markets"
-}
+[
+  { "name": "Reuters Business", "url": "https://feeds.reuters.com/reuters/businessNews" },
+  { "name": "FT Home",          "url": "https://www.ft.com/rss/home" },
+  { "name": "CNBC Finance",     "url": "https://www.cnbc.com/id/10000664/device/rss/rss.html" }
+]
